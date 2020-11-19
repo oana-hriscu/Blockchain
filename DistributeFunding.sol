@@ -23,7 +23,7 @@ contract DistributeFunding is OwnerProperty{
         emit fundsReceived(funds);
     }
    
-    function addBeneficiary(address payable _beneficiary, uint _percentage) onlyOwner public{
+    function addBeneficiary(address payable _beneficiary, uint _percentage) ownerOnly public{
         
         require(_percentage <= 100, "The share goes above 100%. Please pick a smaller value.");
         require(currentSharePercentage + _percentage <= 100, "The share increases the total share above 100%. Please pick a smaller value.");
@@ -33,7 +33,7 @@ contract DistributeFunding is OwnerProperty{
         currentSharePercentage += _percentage;
     }
     
-    function distributeFunds() onlyOwner public{
+    function distributeFunds() ownerOnly public{
         require (funds > 0, "Not enough funds to distribute");
         
         for (uint i = 0; i < beneficiaries.length; i++) {
