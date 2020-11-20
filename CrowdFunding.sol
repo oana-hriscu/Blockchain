@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: MIT
-
-
-pragma solidity >=0.4.22 <0.7.0;
+pragma solidity >=0.4.22 <=0.7.5;
 pragma experimental ABIEncoderV2;
-
 import 'DistributeFunding.sol';
 import 'OwnerProperty.sol';
 
@@ -11,57 +8,54 @@ contract CrowdFunding is OwnerProperty {
     
     uint fundingGoal;
     uint currentFunds;
-    bool campaignEnded;
-    mapping (address => Contributor) donors;  // mapping (cheia address, valoarea Contributor)
-    DistributeFunding distributeFunding;
+    bool campaignEnded; //by default initialized with false
+    address payable private distributeFundingAddress;
+    
+    mapping (address => Contributor) donors;
     
     struct Contributor{
         string name;
         string countryCode;
         uint donatedSum;
-        address addr;
+        bool exists;
     }
     
-    // contract members (evenimente care stocheaza args in transaction logs)
     event newDonation (Contributor _contributor);
     event checkStatus (uint _currentFunds, string message);
     event donationRetracted(address _contributorAddress, uint _retractedSum);
     event endCampaign ();
+    event mybalance(uint balance);
+    event stats(bool campaignEnded, uint currentFunds, address distributeFundingAddress);
    
-    constructor (uint _fundingGoal, address payable _distributeFunding) public {
-        
-        distributeFunding = DistributeFunding(_distributeFunding);
-        fundingGoal = _fundingGoal;  // in wei
+    constructor (uint _fundingGoal) {
+        fundingGoal = _fundingGoal;
         currentFunds = 0;
     }
     
-    function donate(string memory _name, string memory _countryCode, uint _amount) payable public {
+    function donate(string memory _name, string memory _countryCode ) payable public {
         
-        Contributor memory currentContributor = donors[msg.sender];  // sender of the message (current call address)
+        Contributor memory currentContributor = donors[msg.sender];
         
         require(
             campaignEnded != true,
             "Our Campaign has ended but thank you very much for your intent!"
             );
         
-        if(currentContributor.addr == address(0)) {  // contrib nou (nu exista valoare pt cheia adresei)
+        if(currentContributor.exists == false) {  //new donor - does not exist in the mapping
             currentContributor = Contributor({
                 name: _name,
                 countryCode: _countryCode,
-                addr: msg.sender,
-                donatedSum: _amount   //msg.value
+                donatedSum: msg.value,
+                exists: true
             });
         }
         else {
-            // actualizam datele contribuitorului existent
-            currentContributor.name = _name;
-            currentContributor.countryCode = _countryCode;
-            currentContributor.donatedSum += _amount;   // crestem suma donata de contribuitorul existent
+            currentContributor.donatedSum += msg.value;   //if an already existing contributor makes another donation, just increase the sum
         }
         
-        currentFunds += _amount;
+        currentFunds += msg.value;
         donors[msg.sender] = currentContributor;
-        emit newDonation(currentContributor);   // apel explicit
+        emit newDonation(currentContributor);
         
         if(currentFunds >= fundingGoal){
             campaignEnded = true;
@@ -73,18 +67,13 @@ contract CrowdFunding is OwnerProperty {
         Contributor memory currentContributor = donors[msg.sender];
         
         require( 
-            currentContributor.addr != address(0),   // trebuie ca adresa care vrea sa extraga bani sa existe in mappig
+            currentContributor.exists == true,
             "I'm sorry but it looks like you are not part of our list of contributors."
             );
         
         require(
             campaignEnded != true,
             "Sorry but our campaign has ended. You can no longer retract your donation."
-            );
-            
-        // trebuie sa poata extrage maximul sumei donate:
-        require(
-            currentContributor.donatedSum >= amount, "You haven't donated this much money!"
             );
         
         
@@ -96,18 +85,36 @@ contract CrowdFunding is OwnerProperty {
         }
         
         emit donationRetracted(msg.sender, amount);
+        
         msg.sender.transfer(amount);
     }
     
-    function sent2distribute () public {
+    function setDistributionAddress(address payable _distributeFundingAddress) public ownerOnly {
+        emit mybalance(address(this).balance);
+        distributeFundingAddress = _distributeFundingAddress;
+        emit stats(campaignEnded, currentFunds, distributeFundingAddress);
+    }
+    
+    function send2distribute () payable public ownerOnly {
         
         require(
             campaignEnded == true,
             "Sorry but you cannot distribute the funds until the campaign has ended."
             );
+         
+        require(
+            currentFunds >= fundingGoal,
+            "Can't distribute right now. Campaign has not ended or unsufficient funds"
+            );    
         
-        distributeFunding.receiveFunds{value:currentFunds};
+        require(
+            distributeFundingAddress != address(0x0),
+            "Distribution contract address not set!"
+            );
+        
         currentFunds = 0;
+        fundingGoal = 0;
+        distributeFundingAddress.call{value:address(this).balance}("");
     }
     
     function campaignStatus() public {
